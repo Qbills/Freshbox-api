@@ -3,7 +3,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "node src/server.js",
+    "startCommand": "node scripts/migrate.js && node scripts/seed.js && node src/server.js",
     "restartPolicyType": "ON_FAILURE"
   }
 }
