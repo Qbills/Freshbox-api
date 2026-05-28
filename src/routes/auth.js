@@ -1,66 +1,64 @@
-// FreshBox API — JWT Authentication Middleware
-const jwt = require('jsonwebtoken');
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const { body, validationResult } = require('express-validator');
 const { query } = require('../db');
+const { authenticate, generateTokens } = require('../middleware/auth');
 
-// ── Verify access token ────────────────────────────────────────────────────
-async function authenticate(req, res, next) {
+const router = express.Router();
+
+router.post('/login', [
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 6 }),
+], async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    const { email, password } = req.body;
+    const result = await query('SELECT * FROM drivers WHERE email = $1 AND is_active = true', [email]);
+    if (result.rows.length === 0) return res.status(401).json({ success: false, error: 'Invalid email or password' });
+    const driver = result.rows[0];
+    const isValid = await bcrypt.compare(password, driver.password_hash);
+    if (!isValid) return res.status(401).json({ success: false, error: 'Invalid email or password' });
+    const { accessToken, refreshToken } = generateTokens(driver.id);
+    const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + 7);
+    await query('INSERT INTO refresh_tokens (driver_id, token, expires_at) VALUES ($1, $2, $3)', [driver.id, refreshToken, expiresAt]);
+    await query('UPDATE drivers SET is_online = true, updated_at = NOW() WHERE id = $1', [driver.id]);
+    res.json({ success: true, data: { driver: { id: driver.id, name: driver.name, email: driver.email, phone: driver.phone, vehicleReg: driver.vehicle_reg, rating: parseFloat(driver.rating), totalDeliveries: driver.total_deliveries, initials: driver.name.split(' ').map(n => n[0]).join('').toUpperCase() }, accessToken, refreshToken } });
+  } catch (err) { res.status(500).json({ success: false, error: 'Login failed' }); }
+});
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        error: 'No token provided. Include Authorization: Bearer <token>',
-      });
-    }
-
-    const token = authHeader.split(' ')[1];
-
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) return res.status(400).json({ success: false, error: 'Refresh token required' });
+    const jwt = require('jsonwebtoken');
     let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (err) {
-      if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ success: false, error: 'Token expired', code: 'TOKEN_EXPIRED' });
-      }
-      return res.status(401).json({ success: false, error: 'Invalid token' });
-    }
+    try { decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET); } catch { return res.status(401).json({ success: false, error: 'Invalid refresh token' }); }
+    const tokenResult = await query('SELECT * FROM refresh_tokens WHERE token = $1 AND expires_at > NOW()', [refreshToken]);
+    if (tokenResult.rows.length === 0) return res.status(401).json({ success: false, error: 'Token expired' });
+    await query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken]);
+    const tokens = generateTokens(decoded.driverId);
+    const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + 7);
+    await query('INSERT INTO refresh_tokens (driver_id, token, expires_at) VALUES ($1, $2, $3)', [decoded.driverId, tokens.refreshToken, expiresAt]);
+    res.json({ success: true, data: tokens });
+  } catch (err) { res.status(500).json({ success: false, error: 'Token refresh failed' }); }
+});
 
-    // Verify driver still exists and is active
-    const result = await query(
-      'SELECT id, name, email, is_active, is_online, rating FROM drivers WHERE id = $1',
-      [decoded.driverId]
-    );
+router.post('/logout', authenticate, async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    if (refreshToken) await query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken]);
+    await query('UPDATE drivers SET is_online = false, updated_at = NOW() WHERE id = $1', [req.driverId]);
+    res.json({ success: true, message: 'Logged out' });
+  } catch (err) { res.status(500).json({ success: false, error: 'Logout failed' }); }
+});
 
-    if (result.rows.length === 0 || !result.rows[0].is_active) {
-      return res.status(401).json({ success: false, error: 'Driver account not found or deactivated' });
-    }
+router.get('/me', authenticate, async (req, res) => {
+  try {
+    const result = await query('SELECT id, name, email, phone, vehicle_reg, rating, total_deliveries, is_online FROM drivers WHERE id = $1', [req.driverId]);
+    const d = result.rows[0];
+    res.json({ success: true, data: { id: d.id, name: d.name, email: d.email, phone: d.phone, vehicleReg: d.vehicle_reg, rating: parseFloat(d.rating), totalDeliveries: d.total_deliveries, isOnline: d.is_online, initials: d.name.split(' ').map(n => n[0]).join('').toUpperCase() } });
+  } catch (err) { res.status(500).json({ success: false, error: 'Failed to get profile' }); }
+});
 
-    req.driver = result.rows[0];
-    req.driverId = decoded.driverId;
-    next();
-
-  } catch (err) {
-    console.error('Auth middleware error:', err);
-    res.status(500).json({ success: false, error: 'Authentication error' });
-  }
-}
-
-// ── Generate token pair ────────────────────────────────────────────────────
-function generateTokens(driverId) {
-  const accessToken = jwt.sign(
-    { driverId },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
-  );
-
-  const refreshToken = jwt.sign(
-    { driverId },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
-  );
-
-  return { accessToken, refreshToken };
-}
-
-module.exports = { authenticate, generateTokens };
+module.exports = router;
