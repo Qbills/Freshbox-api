@@ -23,6 +23,9 @@ router.post('/login', [
     const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + 7);
     await query('INSERT INTO refresh_tokens (driver_id, token, expires_at) VALUES ($1, $2, $3)', [driver.id, refreshToken, expiresAt]);
     await query('UPDATE drivers SET is_online = true, updated_at = NOW() WHERE id = $1', [driver.id]);
+    if (req.body.fcmToken) {
+      await query('UPDATE drivers SET fcm_token = $1 WHERE id = $2', [req.body.fcmToken, driver.id]);
+    }
     res.json({ success: true, data: { driver: { id: driver.id, name: driver.name, email: driver.email, phone: driver.phone, vehicleReg: driver.vehicle_reg, rating: parseFloat(driver.rating), totalDeliveries: driver.total_deliveries, initials: driver.name.split(' ').map(n => n[0]).join('').toUpperCase() }, accessToken, refreshToken } });
   } catch (err) { res.status(500).json({ success: false, error: 'Login failed' }); }
 });

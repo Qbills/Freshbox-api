@@ -1,3 +1,4 @@
+const { sendOrderAssignedNotification } = require('./notifications');
 // FreshBox API — Stops & Delivery Routes
 const express = require('express');
 const { query, getClient } = require('../db');
@@ -154,7 +155,17 @@ router.patch('/stops/:id/deliver', async (req, res) => {
         deliveredAt: new Date().toISOString(),
       });
     }
-
+    // Send push notification to driver about next stop
+    try {
+      const driverResult = await query(`SELECT fcm_token FROM drivers WHERE id = $1`, [req.driverId]);
+      if (driverResult.rows[0]?.fcm_token) {
+        await sendOrderAssignedNotification(driverResult.rows[0].fcm_token, {
+          address: stop.address
+        });
+      }
+    } catch (notifError) {
+      console.log('Notification error:', notifError);
+    }
     res.json({
       success: true,
       message: `Stop ${stop.stop_number} marked as delivered`,
