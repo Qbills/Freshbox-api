@@ -10,6 +10,9 @@ const authRoutes     = require('./routes/auth');
 const routeRoutes    = require('./routes/route');
 const messageRoutes  = require('./routes/messages');
 const earningsRoutes = require('./routes/earnings');
+const customerProductRoutes = require('./routes/customer/products');
+const customerOrderRoutes   = require('./routes/customer/orders');
+const customerWalletRoutes  = require('./routes/customer/wallet');
 const { initSockets } = require('./sockets');
 const { pool }       = require('./db');
 
@@ -22,6 +25,7 @@ const io     = new Server(server, {
 
 // ── Make io accessible in route handlers ──────────────────────────────────
 app.set('io', io);
+app.set('db', pool);
 
 // ── Middleware ────────────────────────────────────────────────────────────
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
@@ -57,6 +61,9 @@ app.use('/api/auth',     authRoutes);
 app.use('/api/route',    routeRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/earnings', earningsRoutes);
+app.use('/api/customer/products', customerProductRoutes);
+app.use('/api/customer/orders',   customerOrderRoutes);
+app.use('/api/customer/wallet',   customerWalletRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────
 app.use((req, res) => {
