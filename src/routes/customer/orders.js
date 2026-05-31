@@ -261,7 +261,7 @@ router.get('/:id/tracking', customerAuth, async (req, res) => {
               ot.updated_at AS tracking_updated_at
        FROM customer_orders o
        LEFT JOIN order_tracking ot ON ot.order_id = o.id
-       LEFT JOIN drivers d ON d.id = ot.driver_id
+       LEFT JOIN drivers d ON d.id = ot.driver_id::uuid
        WHERE o.id = $1::integer AND o.customer_id = $2::uuid
        ORDER BY ot.updated_at DESC NULLS LAST`,
       [id, customerId]
