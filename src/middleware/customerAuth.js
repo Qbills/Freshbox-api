@@ -1,6 +1,7 @@
 // middleware/customerAuth.js
-// Validates JWT and confirms role === 'customer'
+// Validates JWT and confirms it contains customerId (issued by customer login)
 // Drop this file into: FreshBoxAPI/src/middleware/customerAuth.js
+// REPLACES the previous version
 
 const jwt = require('jsonwebtoken');
 
@@ -16,13 +17,16 @@ module.exports = function customerAuth(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Accept both customer role AND driver role for testing with thabo@freshbox.co.za
-    // Remove the driver exception once you have a dedicated customer account
-    if (decoded.role !== 'customer' && decoded.role !== 'driver') {
-      return res.status(403).json({ error: 'Customer access required' });
+    // Customer tokens contain customerId
+    // Driver tokens contain driverId
+    // Reject driver tokens from customer endpoints
+    if (!decoded.customerId) {
+      return res.status(403).json({
+        error: 'This endpoint requires a customer account. Please log in with your Pantri customer account.'
+      });
     }
 
-    req.user = decoded; // { id, email, role, iat, exp }
+    req.user = { id: decoded.customerId };
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });

@@ -6,10 +6,11 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 
-const authRoutes     = require('./routes/auth');
-const routeRoutes    = require('./routes/route');
-const messageRoutes  = require('./routes/messages');
-const earningsRoutes = require('./routes/earnings');
+const authRoutes            = require('./routes/auth');
+const routeRoutes           = require('./routes/route');
+const messageRoutes         = require('./routes/messages');
+const earningsRoutes        = require('./routes/earnings');
+const customerAuthRoutes    = require('./routes/customer/auth');
 const customerProductRoutes = require('./routes/customer/products');
 const customerOrderRoutes   = require('./routes/customer/orders');
 const customerWalletRoutes  = require('./routes/customer/wallet');
@@ -23,7 +24,7 @@ const io     = new Server(server, {
   pingTimeout: 60000,
 });
 
-// ── Make io accessible in route handlers ──────────────────────────────────
+// ── Make io and db accessible in route handlers ───────────────────────────
 app.set('io', io);
 app.set('db', pool);
 
@@ -57,10 +58,14 @@ app.get('/health', async (_req, res) => {
 });
 
 // ── API Routes ────────────────────────────────────────────────────────────
+// Driver routes
 app.use('/api/auth',     authRoutes);
 app.use('/api/route',    routeRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/earnings', earningsRoutes);
+
+// Customer routes
+app.use('/api/customer/auth',     customerAuthRoutes);
 app.use('/api/customer/products', customerProductRoutes);
 app.use('/api/customer/orders',   customerOrderRoutes);
 app.use('/api/customer/wallet',   customerWalletRoutes);
