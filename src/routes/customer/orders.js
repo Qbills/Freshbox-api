@@ -247,6 +247,7 @@ router.get('/:id', customerAuth, async (req, res) => {
 });
 
 // GET /api/customer/orders/:id/tracking
+// Driver join removed — drivers will be linked when admin dashboard assigns them
 router.get('/:id/tracking', customerAuth, async (req, res) => {
   const db = req.app.get('db');
   const customerId = req.user.id;
@@ -255,13 +256,9 @@ router.get('/:id/tracking', customerAuth, async (req, res) => {
   try {
     const orderResult = await db.query(
       `SELECT o.id, o.status, o.delivery_address, o.delivery_slot,
-              d.name AS driver_name,
-              d.vehicle_registration AS driver_vehicle,
-              ot.driver_lat, ot.driver_lng, ot.eta_mins,
-              ot.updated_at AS tracking_updated_at
+              ot.eta_mins, ot.updated_at AS tracking_updated_at
        FROM customer_orders o
        LEFT JOIN order_tracking ot ON ot.order_id = o.id
-       LEFT JOIN drivers d ON d.id = ot.driver_id::uuid
        WHERE o.id = $1::integer AND o.customer_id = $2::uuid
        ORDER BY ot.updated_at DESC NULLS LAST`,
       [id, customerId]
@@ -291,15 +288,8 @@ router.get('/:id/tracking', customerAuth, async (req, res) => {
       step_description: tracking.description,
       delivery_address: row.delivery_address,
       delivery_slot: row.delivery_slot,
-      driver: row.driver_name ? {
-        name: row.driver_name,
-        vehicle: row.driver_vehicle,
-      } : null,
-      live_location: (row.driver_lat && row.driver_lng) ? {
-        lat: parseFloat(row.driver_lat),
-        lng: parseFloat(row.driver_lng),
-        eta_mins: row.eta_mins,
-      } : null,
+      driver: null,
+      live_location: null,
       updated_at: row.tracking_updated_at,
     });
   } catch (err) {
