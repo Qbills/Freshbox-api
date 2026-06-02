@@ -14,6 +14,11 @@ const customerAuthRoutes    = require('./routes/customer/auth');
 const customerProductRoutes = require('./routes/customer/products');
 const customerOrderRoutes   = require('./routes/customer/orders');
 const customerWalletRoutes  = require('./routes/customer/wallet');
+const adminAuthRoutes       = require('./routes/admin/auth');
+const adminOverviewRoutes   = require('./routes/admin/overview');
+const adminOrdersRoutes     = require('./routes/admin/orders');
+const adminCustomersRoutes  = require('./routes/admin/customers');
+const adminProductsRoutes   = require('./routes/admin/products');
 const { initSockets } = require('./sockets');
 const { pool }       = require('./db');
 
@@ -69,6 +74,13 @@ app.use('/api/customer/auth',     customerAuthRoutes);
 app.use('/api/customer/products', customerProductRoutes);
 app.use('/api/customer/orders',   customerOrderRoutes);
 app.use('/api/customer/wallet',   customerWalletRoutes);
+
+// Admin routes
+app.use('/api/admin/auth',      adminAuthRoutes);
+app.use('/api/admin/overview',  adminOverviewRoutes);
+app.use('/api/admin/orders',    adminOrdersRoutes);
+app.use('/api/admin/customers', adminCustomersRoutes);
+app.use('/api/admin/products',  adminProductsRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────
 app.use((req, res) => {
