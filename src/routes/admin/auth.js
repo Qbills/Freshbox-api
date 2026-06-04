@@ -1,18 +1,11 @@
 // FreshBoxAPI/src/routes/admin/auth.js
 // POST /api/admin/auth/login
-// POST /api/admin/auth/logout
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
 
-// Admin credentials stored as env vars — never hardcoded
-// Set these in Railway:
-//   ADMIN_EMAIL=ayo@freshbox.co.za
-//   ADMIN_PASSWORD_HASH=<bcrypt hash of your password>
-
-// POST /api/admin/auth/login
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -21,18 +14,25 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    const adminEmail = process.env.ADMIN_EMAIL;
-    const adminHash = process.env.ADMIN_PASSWORD_HASH;
+    const adminEmail    = process.env.ADMIN_EMAIL;
+    const adminHash     = process.env.ADMIN_PASSWORD_HASH;
 
-    if (!adminEmail || !adminHash) {
-      return res.status(500).json({ error: 'Admin credentials not configured' });
+    // Diagnose missing env vars clearly
+    if (!adminEmail) {
+      return res.status(500).json({ error: 'ADMIN_EMAIL not configured' });
+    }
+    if (!adminHash) {
+      return res.status(500).json({ error: 'ADMIN_PASSWORD_HASH not configured' });
     }
 
-    if (email.toLowerCase().trim() !== adminEmail.toLowerCase()) {
+    // Check email first
+    if (email.toLowerCase().trim() !== adminEmail.toLowerCase().trim()) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const valid = await bcrypt.compare(password, adminHash);
+    // Compare password against hash
+    const valid = await bcrypt.compare(password.trim(), adminHash.trim());
+
     if (!valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -46,11 +46,16 @@ router.post('/login', async (req, res) => {
     res.json({
       success: true,
       token,
-      admin: { email: adminEmail, name: 'Ayo Williams', role: 'owner' }
+      admin: {
+        email: adminEmail,
+        name: 'Ayo Williams',
+        role: 'owner'
+      }
     });
+
   } catch (err) {
     console.error('Admin login error:', err);
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: 'Login failed', detail: err.message });
   }
 });
 
