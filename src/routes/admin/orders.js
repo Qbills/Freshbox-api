@@ -1,11 +1,12 @@
 // FreshBoxAPI/src/routes/admin/orders.js
 // GET  /api/admin/orders         — all orders with filters
 // GET  /api/admin/orders/:id     — single order detail
-// PUT  /api/admin/orders/:id/status — update order status
+// PUT  /api/admin/orders/:id/status — update order status + send push notification
 
 const express = require('express');
 const router = express.Router();
 const adminAuth = require('./middleware');
+const { sendOrderStatusNotification } = require('../../services/fcm');
 
 // GET /api/admin/orders
 router.get('/', adminAuth, async (req, res) => {
@@ -23,13 +24,11 @@ router.get('/', adminAuth, async (req, res) => {
       params.push(status);
       paramIdx++;
     }
-
     if (zone && zone !== 'all') {
       whereClauses.push(`o.delivery_address ILIKE $${paramIdx}`);
       params.push(`%${zone}%`);
       paramIdx++;
     }
-
     if (search) {
       whereClauses.push(`(c.name ILIKE $${paramIdx} OR c.email ILIKE $${paramIdx} OR o.id::text = $${paramIdx})`);
       params.push(`%${search}%`);
@@ -92,7 +91,7 @@ router.get('/', adminAuth, async (req, res) => {
   }
 });
 
-// PUT /api/admin/orders/:id/status — advance order status
+// PUT /api/admin/orders/:id/status — advance order status + send push notification
 router.put('/:id/status', adminAuth, async (req, res) => {
   const db = req.app.get('db');
   const { id } = req.params;
@@ -105,13 +104,14 @@ router.put('/:id/status', adminAuth, async (req, res) => {
   }
 
   try {
-    const timestampField = {
-      confirmed: 'confirmed_at',
-      preparing: 'prepared_at',
+    const timestampFields = {
+      confirmed:        'confirmed_at',
+      preparing:        'prepared_at',
       out_for_delivery: 'dispatched_at',
-      delivered: 'delivered_at',
-    }[status];
+      delivered:        'delivered_at',
+    };
 
+    const timestampField = timestampFields[status];
     const updateSQL = timestampField
       ? `UPDATE customer_orders SET status = $1, ${timestampField} = NOW() WHERE id = $2 RETURNING *`
       : `UPDATE customer_orders SET status = $1 WHERE id = $2 RETURNING *`;
@@ -127,6 +127,24 @@ router.put('/:id/status', adminAuth, async (req, res) => {
       `UPDATE order_tracking SET status = $1, updated_at = NOW() WHERE order_id = $2`,
       [status, id]
     );
+
+    // Send push notification to customer
+    try {
+      const customerResult = await db.query(
+        `SELECT c.fcm_token FROM customers c
+         INNER JOIN customer_orders o ON o.customer_id = c.id
+         WHERE o.id = $1`,
+        [id]
+      );
+
+      const fcmToken = customerResult.rows[0]?.fcm_token;
+      if (fcmToken) {
+        await sendOrderStatusNotification(fcmToken, status, id);
+      }
+    } catch (notifErr) {
+      // Notification failure must never break order status update
+      console.error('Push notification failed (non-fatal):', notifErr.message);
+    }
 
     res.json({ success: true, order: result.rows[0] });
   } catch (err) {

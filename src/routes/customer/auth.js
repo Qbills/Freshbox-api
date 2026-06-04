@@ -1,18 +1,13 @@
 // routes/customer/auth.js
-// Drop into: FreshBoxAPI/src/routes/customer/auth.js
-//
-// Endpoints:
-//   POST /api/customer/auth/register
-//   POST /api/customer/auth/login
-//   POST /api/customer/auth/logout
-//   GET  /api/customer/auth/me
+// FreshBoxAPI/src/routes/customer/auth.js
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
+const customerAuth = require('../../middleware/customerAuth');
 
-// ── Helper: generate customer tokens ──────────────────────────────────────
+// ── Helper: generate customer tokens ─────────────────────────
 function generateCustomerTokens(customerId) {
   const accessToken = jwt.sign(
     { customerId },
@@ -35,13 +30,11 @@ router.post('/register', async (req, res) => {
   if (!name || !email || !password) {
     return res.status(400).json({ success: false, error: 'Name, email and password are required' });
   }
-
   if (password.length < 6) {
     return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
   }
 
   try {
-    // Check if email already exists
     const existing = await db.query(
       'SELECT id FROM customers WHERE email = $1',
       [email.toLowerCase().trim()]
@@ -50,13 +43,9 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ success: false, error: 'An account with this email already exists' });
     }
 
-    // Hash password
     const password_hash = await bcrypt.hash(password, 12);
-
-    // Generate referral code for this customer
     const myReferralCode = 'PANTRI' + Math.random().toString(36).substring(2, 7).toUpperCase();
 
-    // Insert customer
     const result = await db.query(
       `INSERT INTO customers (name, email, password_hash, phone, referral_code, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
@@ -66,7 +55,6 @@ router.post('/register', async (req, res) => {
 
     const customer = result.rows[0];
 
-    // Create wallet and profile
     await db.query(
       `INSERT INTO customer_wallets (customer_id, balance, created_at) VALUES ($1, 0, NOW())`,
       [customer.id]
@@ -76,10 +64,7 @@ router.post('/register', async (req, res) => {
       [customer.id]
     );
 
-    // Generate tokens
     const { accessToken, refreshToken } = generateCustomerTokens(customer.id);
-
-    // Store refresh token
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
     await db.query(
@@ -135,14 +120,11 @@ router.post('/login', async (req, res) => {
 
     const customer = result.rows[0];
     const isValid = await bcrypt.compare(password, customer.password_hash);
-
     if (!isValid) {
       return res.status(401).json({ success: false, error: 'Invalid email or password' });
     }
 
     const { accessToken, refreshToken } = generateCustomerTokens(customer.id);
-
-    // Store refresh token
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
     await db.query(
@@ -150,7 +132,6 @@ router.post('/login', async (req, res) => {
       [customer.id, refreshToken, expiresAt]
     );
 
-    // Determine tier
     const points = parseInt(customer.loyalty_points || 0);
     let tier = 'seedling';
     if (points >= 3000) tier = 'elite';
@@ -177,6 +158,48 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     console.error('POST /api/customer/auth/login error:', err);
     res.status(500).json({ success: false, error: 'Login failed' });
+  }
+});
+
+// POST /api/customer/auth/refresh
+router.post('/refresh', async (req, res) => {
+  const db = req.app.get('db');
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    return res.status(400).json({ success: false, error: 'Refresh token required' });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    if (!decoded.customerId) {
+      return res.status(401).json({ success: false, error: 'Invalid refresh token' });
+    }
+
+    // Check token exists in DB and hasn't expired
+    const tokenResult = await db.query(
+      `SELECT * FROM customer_refresh_tokens
+       WHERE token = $1 AND customer_id = $2::uuid AND expires_at > NOW()`,
+      [refreshToken, decoded.customerId]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      return res.status(401).json({ success: false, error: 'Refresh token expired or invalid' });
+    }
+
+    // Issue new access token
+    const accessToken = jwt.sign(
+      { customerId: decoded.customerId },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
+    );
+
+    res.json({
+      success: true,
+      data: { accessToken }
+    });
+  } catch (err) {
+    return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
   }
 });
 
@@ -246,6 +269,28 @@ router.get('/me', async (req, res) => {
     });
   } catch (err) {
     return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+  }
+});
+
+// POST /api/customer/auth/fcm-token — save FCM token for push notifications
+router.post('/fcm-token', customerAuth, async (req, res) => {
+  const db = req.app.get('db');
+  const customerId = req.user.id;
+  const { fcm_token } = req.body;
+
+  if (!fcm_token) {
+    return res.status(400).json({ error: 'FCM token required' });
+  }
+
+  try {
+    await db.query(
+      `UPDATE customers SET fcm_token = $1 WHERE id = $2::uuid`,
+      [fcm_token, customerId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('FCM token save error:', err);
+    res.status(500).json({ error: 'Failed to save FCM token' });
   }
 });
 
