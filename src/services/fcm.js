@@ -2,8 +2,8 @@
 // Firebase Cloud Messaging — sends push notifications to customers
 
 const https = require('https');
+const { GoogleAuth } = require('google-auth-library');
 
-// Notification messages for each order status
 const STATUS_MESSAGES = {
   confirmed: {
     title: '✅ Order confirmed',
@@ -26,6 +26,37 @@ const STATUS_MESSAGES = {
     body: 'Your order has been cancelled. Contact support if you need help.',
   },
 };
+
+async function getFirebaseAccessToken() {
+  // Fix private key — Railway stores \n as literal characters, convert to real newlines
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY
+    ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    : undefined;
+
+  if (!privateKey) {
+    throw new Error('FIREBASE_PRIVATE_KEY not configured');
+  }
+
+  const credentials = {
+    type: 'service_account',
+    project_id: process.env.FIREBASE_PROJECT_ID,
+    private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+    private_key: privateKey,
+    client_email: process.env.FIREBASE_CLIENT_EMAIL,
+    client_id: process.env.FIREBASE_CLIENT_ID,
+    auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+    token_uri: 'https://oauth2.googleapis.com/token',
+  };
+
+  const auth = new GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
+  });
+
+  const client = await auth.getClient();
+  const tokenResponse = await client.getAccessToken();
+  return tokenResponse.token;
+}
 
 async function sendOrderStatusNotification(fcmToken, status, orderId) {
   const message = STATUS_MESSAGES[status];
@@ -82,7 +113,7 @@ async function sendOrderStatusNotification(fcmToken, status, orderId) {
             resolve(JSON.parse(data));
           } else {
             console.error(`FCM error ${res.statusCode}:`, data);
-            reject(new Error(`FCM error: ${res.statusCode}`));
+            reject(new Error(`FCM error: ${res.statusCode} — ${data}`));
           }
         });
       });
@@ -93,33 +124,7 @@ async function sendOrderStatusNotification(fcmToken, status, orderId) {
     });
   } catch (err) {
     console.error('Failed to send push notification:', err.message);
-    // Don't throw — notification failure should never break order status update
   }
-}
-
-// Get Firebase access token using service account credentials
-async function getFirebaseAccessToken() {
-  const { GoogleAuth } = require('google-auth-library');
-
-  const credentials = {
-    type: 'service_account',
-    project_id: process.env.FIREBASE_PROJECT_ID,
-    private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-    private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    client_email: process.env.FIREBASE_CLIENT_EMAIL,
-    client_id: process.env.FIREBASE_CLIENT_ID,
-    auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-    token_uri: 'https://oauth2.googleapis.com/token',
-  };
-
-  const auth = new GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
-  });
-
-  const client = await auth.getClient();
-  const tokenResponse = await client.getAccessToken();
-  return tokenResponse.token;
 }
 
 module.exports = { sendOrderStatusNotification };
