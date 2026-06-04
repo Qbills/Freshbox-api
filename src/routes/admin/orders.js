@@ -131,7 +131,7 @@ router.put('/:id/status', adminAuth, async (req, res) => {
     // When order goes out for delivery — dispatch to driver
     if (status === 'out_for_delivery') {
       try {
-        const dispatchResult = await dispatchOrderToDriver(db, parseInt(id));
+        const dispatchResult = await dispatchOrderToDriver(db, parseInt(id, 10));
         console.log(`✅ Dispatched order ${id} to driver ${dispatchResult.driverName}`);
       } catch (dispatchErr) {
         // Dispatch failure is non-fatal — order status still updates
