@@ -1,12 +1,12 @@
 // FreshBoxAPI/src/routes/admin/orders.js
-// GET  /api/admin/orders         — all orders with filters
-// GET  /api/admin/orders/:id     — single order detail
-// PUT  /api/admin/orders/:id/status — update order status + send push notification
+// GET  /api/admin/orders            — all orders with filters
+// PUT  /api/admin/orders/:id/status — update status + dispatch + notify customer
 
 const express = require('express');
 const router = express.Router();
 const adminAuth = require('./middleware');
 const { sendOrderStatusNotification } = require('../../services/fcm');
+const { dispatchOrderToDriver } = require('../../services/dispatch');
 
 // GET /api/admin/orders
 router.get('/', adminAuth, async (req, res) => {
@@ -91,7 +91,7 @@ router.get('/', adminAuth, async (req, res) => {
   }
 });
 
-// PUT /api/admin/orders/:id/status — advance order status + send push notification
+// PUT /api/admin/orders/:id/status
 router.put('/:id/status', adminAuth, async (req, res) => {
   const db = req.app.get('db');
   const { id } = req.params;
@@ -128,6 +128,17 @@ router.put('/:id/status', adminAuth, async (req, res) => {
       [status, id]
     );
 
+    // When order goes out for delivery — dispatch to driver
+    if (status === 'out_for_delivery') {
+      try {
+        const dispatchResult = await dispatchOrderToDriver(db, parseInt(id));
+        console.log(`✅ Dispatched order ${id} to driver ${dispatchResult.driverName}`);
+      } catch (dispatchErr) {
+        // Dispatch failure is non-fatal — order status still updates
+        console.error('Dispatch failed (non-fatal):', dispatchErr.message);
+      }
+    }
+
     // Send push notification to customer
     try {
       const customerResult = await db.query(
@@ -136,14 +147,12 @@ router.put('/:id/status', adminAuth, async (req, res) => {
          WHERE o.id = $1`,
         [id]
       );
-
       const fcmToken = customerResult.rows[0]?.fcm_token;
       if (fcmToken) {
         await sendOrderStatusNotification(fcmToken, status, id);
       }
     } catch (notifErr) {
-      // Notification failure must never break order status update
-      console.error('Push notification failed (non-fatal):', notifErr.message);
+      console.error('Customer notification failed (non-fatal):', notifErr.message);
     }
 
     res.json({ success: true, order: result.rows[0] });
