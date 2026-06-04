@@ -28,14 +28,11 @@ const STATUS_MESSAGES = {
 };
 
 async function getFirebaseAccessToken() {
-  // Fix private key — Railway stores \n as literal characters, convert to real newlines
   const privateKey = process.env.FIREBASE_PRIVATE_KEY
     ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
     : undefined;
 
-  if (!privateKey) {
-    throw new Error('FIREBASE_PRIVATE_KEY not configured');
-  }
+  if (!privateKey) throw new Error('FIREBASE_PRIVATE_KEY not configured');
 
   const credentials = {
     type: 'service_account',
@@ -64,6 +61,7 @@ async function sendOrderStatusNotification(fcmToken, status, orderId) {
 
   const orderRef = `#PNT-${String(orderId).padStart(4, '0')}`;
 
+  // No custom channel — use Android default channel so notification always shows
   const payload = {
     message: {
       token: fcmToken,
@@ -79,9 +77,13 @@ async function sendOrderStatusNotification(fcmToken, status, orderId) {
       },
       android: {
         priority: 'high',
-        notification: {
-          sound: 'default',
-          channel_id: 'pantri_orders',
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+          },
         },
       },
     },
