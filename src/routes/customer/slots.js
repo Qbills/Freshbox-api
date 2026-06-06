@@ -10,9 +10,10 @@ const SA_OFFSET_HOURS = 2;
 
 // Slot definitions — start hour, end hour, display label
 const SLOT_DEFINITIONS = [
-  { id: 'morning',   startHour: 8,  endHour: 12, label: '8am – 12pm' },
-  { id: 'afternoon', startHour: 12, endHour: 16, label: '12pm – 4pm' },
-  { id: 'evening',   startHour: 16, endHour: 20, label: '4pm – 8pm' },
+  { id: 'morning',   startHour: 8,  endHour: 11, label: '8am – 11am' },
+  { id: 'midmorning', startHour: 11, endHour: 14, label: '11am – 2pm' },
+  { id: 'afternoon', startHour: 14, endHour: 17, label: '2pm – 5pm' },
+  { id: 'evening',   startHour: 17, endHour: 20, label: '5pm – 8pm' },
 ];
 
 // Max orders per slot before it shows as full
