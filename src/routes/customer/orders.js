@@ -1,5 +1,5 @@
-// routes/customer/orders.js
 // FreshBoxAPI/src/routes/customer/orders.js
+// With referral bonus — credits referrer R50 on new customer's first order
 
 const express = require('express');
 const router = express.Router();
@@ -73,6 +73,7 @@ router.post('/', customerAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Fetch and validate products
     const productIds = items.map(i => i.product_id);
     const productsResult = await client.query(
       `SELECT id, name, price, image_url, stock_count, is_available
@@ -137,6 +138,7 @@ router.post('/', customerAuth, async (req, res) => {
 
     const orderId = orderResult.rows[0].id;
 
+    // Insert order items and update stock
     for (const item of orderItems) {
       await client.query(
         `INSERT INTO customer_order_items
@@ -150,6 +152,7 @@ router.post('/', customerAuth, async (req, res) => {
       );
     }
 
+    // Deduct wallet credit if used
     if (wallet_credit_used > 0) {
       await client.query(
         `UPDATE customer_wallets SET balance = balance - $1 WHERE customer_id = $2::uuid`,
@@ -162,6 +165,7 @@ router.post('/', customerAuth, async (req, res) => {
       );
     }
 
+    // Award loyalty points
     const pointsEarned = Math.floor(subtotal / 10);
     if (pointsEarned > 0) {
       await client.query(
@@ -170,16 +174,60 @@ router.post('/', customerAuth, async (req, res) => {
         [customerId, pointsEarned, orderId]
       );
       await client.query(
-        `UPDATE customer_profiles SET loyalty_points = loyalty_points + $1 WHERE customer_id = $2::uuid`,
-        [pointsEarned, customerId]
+        `UPDATE customer_profiles SET
+           loyalty_points = loyalty_points + $1,
+           total_orders = total_orders + 1,
+           total_spent = total_spent + $2
+         WHERE customer_id = $3::uuid`,
+        [pointsEarned, subtotal, customerId]
       );
     }
 
+    // Create order tracking entry
     await client.query(
       `INSERT INTO order_tracking (order_id, status, updated_at)
        VALUES ($1, 'pending', NOW())`,
       [orderId]
     );
+
+    // ── REFERRAL BONUS — credit referrer on new customer's first order ──
+    try {
+      // Check if this customer was referred by someone
+      const customerResult = await client.query(
+        `SELECT referred_by FROM customers WHERE id = $1::uuid`,
+        [customerId]
+      );
+
+      const referrerId = customerResult.rows[0]?.referred_by;
+
+      if (referrerId) {
+        // Check if this is their first order
+        const orderCountResult = await client.query(
+          `SELECT COUNT(*) as count FROM customer_orders WHERE customer_id = $1::uuid`,
+          [customerId]
+        );
+
+        const orderCount = parseInt(orderCountResult.rows[0].count);
+
+        // orderCount is 1 because this order was just inserted — so this IS the first order
+        if (orderCount === 1) {
+          // Credit referrer R50
+          await client.query(
+            `UPDATE customer_wallets SET balance = balance + 50 WHERE customer_id = $1::uuid`,
+            [referrerId]
+          );
+          await client.query(
+            `INSERT INTO wallet_transactions (customer_id, type, amount, description, reference_id, created_at)
+             VALUES ($1::uuid, 'referral_reward', 50, 'Referral reward — your friend placed their first order', $2, NOW())`,
+            [referrerId, orderId]
+          );
+          console.log(`✅ R50 referral reward credited to referrer ${referrerId}`);
+        }
+      }
+    } catch (referralErr) {
+      // Referral credit failure is non-fatal — order still completes
+      console.error('Referral credit failed (non-fatal):', referralErr.message);
+    }
 
     await client.query('COMMIT');
 
@@ -247,7 +295,6 @@ router.get('/:id', customerAuth, async (req, res) => {
 });
 
 // GET /api/customer/orders/:id/tracking
-// Driver join removed — drivers will be linked when admin dashboard assigns them
 router.get('/:id/tracking', customerAuth, async (req, res) => {
   const db = req.app.get('db');
   const customerId = req.user.id;
