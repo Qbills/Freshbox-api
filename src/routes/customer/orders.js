@@ -218,7 +218,7 @@ router.post('/', customerAuth, async (req, res) => {
           );
           await client.query(
             `INSERT INTO wallet_transactions (customer_id, type, amount, description, reference_id, created_at)
-             VALUES ($1::uuid, 'referral_reward', 50, 'Referral reward — your friend placed their first order', $2, NOW())`,
+             VALUES ($1::uuid, 'credit', 50, 'Referral reward — your friend placed their first order', $2, NOW())`,
             [referrerId, orderId]
           );
           console.log(`✅ R50 referral reward credited to referrer ${referrerId}`);

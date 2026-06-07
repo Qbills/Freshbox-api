@@ -98,7 +98,7 @@ router.post('/register', async (req, res) => {
     if (referrerId) {
       await client.query(
         `INSERT INTO wallet_transactions (customer_id, type, amount, description, created_at)
-         VALUES ($1, 'referral_welcome', 50, 'Welcome bonus — referral code applied', NOW())`,
+         VALUES ($1, 'credit', 50, 'Welcome bonus — referral code applied', NOW())`,
         [customer.id]
       );
       console.log(`✅ R50 referral welcome credit applied to new customer ${customer.email}`);
